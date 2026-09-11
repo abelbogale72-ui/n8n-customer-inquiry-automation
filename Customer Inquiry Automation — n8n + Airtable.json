@@ -1,0 +1,981 @@
+{
+  "name": "Customer Inquiry Automation — n8n + Airtable",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "customer-inquiry",
+        "options": {}
+      },
+      "id": "54ba81db-443f-4b4d-ba5d-b67a5dd58530",
+      "name": "Website Inquiry Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -2832,
+        1472
+      ],
+      "webhookId": "customer-inquiry-v2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json.body ?? $json;\n\nconst fullName = String(data.fullName ?? '').trim();\nconst email = String(data.email ?? '').trim().toLowerCase();\nconst message = String(data.message ?? '').trim();\n\nconst missing = [];\nif (!fullName) missing.push('fullName');\nif (!email) missing.push('email');\nif (!message) missing.push('message');\n\nif (missing.length) {\n  return [{\n    json: {\n      valid: false,\n      error: `Missing required field(s): ${missing.join(', ')}`,\n      receivedAt: new Date().toISOString()\n    }\n  }];\n}\n\nconst phone = String(data.phone ?? '').trim();\nconst company = String(data.company ?? '').trim();\nconst source = String(data.source ?? 'Website').trim();\n\nconst urgentWords = [\n  'urgent', 'asap', 'emergency', 'critical', 'immediately',\n  'deadline', 'today', 'right away'\n];\n\nconst haystack = `${message} ${String(data.subject ?? '')}`.toLowerCase();\nconst priority = urgentWords.some(word => haystack.includes(word))\n  ? 'High'\n  : 'Normal';\n\nfunction addBusinessDays(date, days) {\n  const d = new Date(date);\n  let added = 0;\n  while (added < days) {\n    d.setDate(d.getDate() + 1);\n    const day = d.getDay();\n    if (day !== 0 && day !== 6) added++;\n  }\n  return d;\n}\n\nconst receivedAt = new Date();\nconst followUpAt = addBusinessDays(receivedAt, 2);\n\nreturn [{\n  json: {\n    valid: true,\n    fullName,\n    email,\n    phone,\n    company,\n    message,\n    source,\n    priority,\n    status: 'New',\n    handled: false,\n    receivedAt: receivedAt.toISOString(),\n    followUpAt: followUpAt.toISOString()\n  }\n}];"
+      },
+      "id": "e28c2dbd-6032-42a4-a4a4-9b40f61f2f34",
+      "name": "Validate & Classify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2608,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "valid-check",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "023319f7-de82-4249-8d68-8539a4179a40",
+      "name": "Valid Inquiry?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2384,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ $json.error || 'Invalid customer inquiry.' }}"
+      },
+      "id": "a15fea83-9c54-40ff-80f5-3eb039562de9",
+      "name": "Stop and Error - Invalid Inquiry",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        -2384,
+        1696
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "applh3H1yzBbtCqV4",
+          "mode": "list",
+          "cachedResultName": "Inquiries",
+          "cachedResultUrl": "https://airtable.com/applh3H1yzBbtCqV4"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblOvFOoC1syck2ZI",
+          "mode": "list",
+          "cachedResultName": "Inquiries",
+          "cachedResultUrl": "https://airtable.com/applh3H1yzBbtCqV4/tblOvFOoC1syck2ZI"
+        },
+        "filterByFormula": "=={Email} = \"{{ $json.email }}\"",
+        "options": {}
+      },
+      "id": "27b04806-a8de-4a2f-b3b5-c63915580c85",
+      "name": "Find Duplicate Contact",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -2144,
+        1472
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "TJcHl9Nmxt1U9QvK",
+          "name": "Airtable Personal Access Token account 15"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "duplicate-check",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "055039ff-7b96-420c-8fb7-fef02b51334b",
+      "name": "Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1904,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "applh3H1yzBbtCqV4",
+          "mode": "list",
+          "cachedResultName": "Inquiries",
+          "cachedResultUrl": "https://airtable.com/applh3H1yzBbtCqV4"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblOvFOoC1syck2ZI",
+          "mode": "list",
+          "cachedResultName": "Inquiries",
+          "cachedResultUrl": "https://airtable.com/applh3H1yzBbtCqV4/tblOvFOoC1syck2ZI"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Full Name": "={{ $('Validate & Classify').item.json.fullName }}",
+            "Phone": "={{ $('Validate & Classify').item.json.phone }}",
+            "Company": "={{ $('Validate & Classify').item.json.company }}",
+            "Message": "={{ $('Validate & Classify').item.json.message }}",
+            "Source": "={{ $('Validate & Classify').item.json.source }}",
+            "Priority": "={{ $('Validate & Classify').item.json.priority }}",
+            "Status": "New",
+            "Handled": false
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Full Name",
+              "displayName": "Full Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Priority",
+              "displayName": "Priority",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "High",
+                  "value": "High"
+                },
+                {
+                  "name": "Normal",
+                  "value": "Normal"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "New",
+                  "value": "New"
+                },
+                {
+                  "name": "Handled",
+                  "value": "Handled"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Handled",
+              "displayName": "Handled",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Received At",
+              "displayName": "Received At",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Follow-up At",
+              "displayName": "Follow-up At",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "64602337-8368-402e-90d1-c11208fd3df4",
+      "name": "Update Existing Contact",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -1648,
+        1376
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "rGRfQpRPxwjkxRkp",
+          "name": "Airtable Personal Access Token account 16"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "applh3H1yzBbtCqV4",
+          "mode": "list",
+          "cachedResultName": "Inquiries",
+          "cachedResultUrl": "https://airtable.com/applh3H1yzBbtCqV4"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblOvFOoC1syck2ZI",
+          "mode": "list",
+          "cachedResultName": "Inquiries",
+          "cachedResultUrl": "https://airtable.com/applh3H1yzBbtCqV4/tblOvFOoC1syck2ZI"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Full Name": "={{ $('Validate & Classify').item.json.fullName }}",
+            "Email": "={{ $('Validate & Classify').item.json.email }}",
+            "Phone": "={{ $('Validate & Classify').item.json.phone }}",
+            "Company": "={{ $('Validate & Classify').item.json.company }}",
+            "Message": "={{ $('Validate & Classify').item.json.message }}",
+            "Source": "={{ $('Validate & Classify').item.json.source }}",
+            "Priority": "={{ $('Validate & Classify').item.json.priority }}",
+            "Status": "New",
+            "Handled": false
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Full Name",
+              "displayName": "Full Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Priority",
+              "displayName": "Priority",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "High",
+                  "value": "High"
+                },
+                {
+                  "name": "Normal",
+                  "value": "Normal"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "New",
+                  "value": "New"
+                },
+                {
+                  "name": "Handled",
+                  "value": "Handled"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Handled",
+              "displayName": "Handled",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Received At",
+              "displayName": "Received At",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Follow-up At",
+              "displayName": "Follow-up At",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "5eb133fa-bd38-45d5-84ca-bc37ae8bb990",
+      "name": "Create New Inquiry",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -1648,
+        1568
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "rGRfQpRPxwjkxRkp",
+          "name": "Airtable Personal Access Token account 16"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nreturn [\n  {\n    json: {\n      ...data,\n      airtableRecordId: data.id || ''\n    }\n  }\n];"
+      },
+      "id": "01d42cd5-cef9-4e16-a0fe-d732c5582449",
+      "name": "Prepare Follow-up Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1408,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "high-check",
+              "leftValue": "={{ $json.priority }}",
+              "rightValue": "High",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fbf45219-ebca-44c6-ae61-ab308f8744ad",
+      "name": "High Priority?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1184,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "abelbogale51@gmail.com",
+        "toEmail": "={{ $('Valid Inquiry?').item.json.email }}",
+        "subject": "High-priority customer inquiry: {{ $('Validate & Classify').item.json.fullName }}",
+        "html": "=<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <title>High-Priority Customer Inquiry</title>\n</head>\n<body style=\"margin:0; padding:0; background-color:#f4f6f8; font-family:Arial,Helvetica,sans-serif; color:#333333;\">\n  <div style=\"max-width:650px; margin:40px auto; background:#ffffff; border-radius:8px; padding:32px;\">\n\n    <h2 style=\"margin-top:0; color:#b42318;\">\n      High-Priority Customer Inquiry\n    </h2>\n\n    <p style=\"font-size:16px; line-height:1.6;\">\n      A new high-priority customer inquiry has been received.\n    </p>\n\n    <table style=\"width:100%; border-collapse:collapse; margin:20px 0;\">\n\n      <tr>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee; font-weight:bold;\">\n          Customer\n        </td>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee;\">\n          {{ $('Validate & Classify').item.json.fullName }}\n        </td>\n      </tr>\n\n      <tr>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee; font-weight:bold;\">\n          Email\n        </td>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee;\">\n          {{ $('Validate & Classify').item.json.email }}\n        </td>\n      </tr>\n\n      <tr>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee; font-weight:bold;\">\n          Phone\n        </td>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee;\">\n          {{ $('Validate & Classify').item.json.phone || 'Not provided' }}\n        </td>\n      </tr>\n\n      <tr>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee; font-weight:bold;\">\n          Company\n        </td>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee;\">\n          {{ $('Validate & Classify').item.json.company || 'Not provided' }}\n        </td>\n      </tr>\n\n      <tr>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee; font-weight:bold;\">\n          Priority\n        </td>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee; color:#b42318; font-weight:bold;\">\n          HIGH\n        </td>\n      </tr>\n\n      <tr>\n        <td style=\"padding:10px; font-weight:bold; vertical-align:top;\">\n          Message\n        </td>\n        <td style=\"padding:10px;\">\n          {{ $('Validate & Classify').item.json.message }}\n        </td>\n      </tr>\n\n    </table>\n\n    <div style=\"margin-top:24px; padding:16px; background:#fff4f2; border-left:4px solid #b42318;\">\n      <strong>Action required:</strong>\n      Please review and handle this inquiry as soon as possible.\n    </div>\n\n    <p style=\"font-size:14px; color:#777777; margin-top:30px;\">\n      This notification was generated automatically by the Customer Inquiry Automation workflow.\n    </p>\n\n  </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "f6a6d61d-4c05-4234-a898-2ab784a1a718",
+      "name": "Internal Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -960,
+        1376
+      ],
+      "webhookId": "eedc2f63-4953-4e5d-9d3a-088a34c44de6",
+      "credentials": {
+        "smtp": {
+          "id": "5PvXmv9Wif2vMLkD",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "abelbogale51@gmail.com",
+        "toEmail": "={{ $('Validate & Classify').item.json.email }}",
+        "subject": "We received your inquiry",
+        "html": "=<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <title>We received your inquiry</title>\n</head>\n<body style=\"margin:0; padding:0; background-color:#f4f6f8; font-family:Arial,Helvetica,sans-serif; color:#333333;\">\n  <div style=\"max-width:600px; margin:40px auto; background:#ffffff; border-radius:8px; padding:32px;\">\n\n    <h2 style=\"margin-top:0; color:#222222;\">\n      Thank you, {{ $('Validate & Classify').item.json.fullName }}\n    </h2>\n\n    <p style=\"font-size:16px; line-height:1.6;\">\n      We have received your inquiry and our team will review it shortly.\n    </p>\n\n    <p style=\"font-size:16px; line-height:1.6;\">\n      Here is a summary of the information you submitted:\n    </p>\n\n    <table style=\"width:100%; border-collapse:collapse; margin:20px 0;\">\n      <tr>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee; font-weight:bold;\">\n          Name\n        </td>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee;\">\n          {{ $('Validate & Classify').item.json.fullName }}\n        </td>\n      </tr>\n\n      <tr>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee; font-weight:bold;\">\n          Email\n        </td>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee;\">\n          {{ $('Validate & Classify').item.json.email }}\n        </td>\n      </tr>\n\n      <tr>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee; font-weight:bold;\">\n          Company\n        </td>\n        <td style=\"padding:10px; border-bottom:1px solid #eeeeee;\">\n          {{ $('Validate & Classify').item.json.company || 'Not provided' }}\n        </td>\n      </tr>\n\n      <tr>\n        <td style=\"padding:10px; font-weight:bold; vertical-align:top;\">\n          Message\n        </td>\n        <td style=\"padding:10px;\">\n          {{ $('Validate & Classify').item.json.message }}\n        </td>\n      </tr>\n    </table>\n\n    <p style=\"font-size:16px; line-height:1.6;\">\n      Thank you for contacting us. We appreciate your interest and will get back to you as soon as possible.\n    </p>\n\n    <p style=\"font-size:14px; color:#777777; margin-top:30px;\">\n      This is an automated confirmation email. Please do not reply to this message.\n    </p>\n\n  </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "0d03fb47-eb3f-4791-8720-a7a6d8b3f466",
+      "name": "Customer Confirmation",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -960,
+        1568
+      ],
+      "webhookId": "1a8d6eff-c9d7-452f-9a2a-4dde164a314b",
+      "credentials": {
+        "smtp": {
+          "id": "5PvXmv9Wif2vMLkD",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "applh3H1yzBbtCqV4",
+          "mode": "list",
+          "cachedResultName": "Inquiries",
+          "cachedResultUrl": "https://airtable.com/applh3H1yzBbtCqV4"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblOvFOoC1syck2ZI",
+          "mode": "list",
+          "cachedResultName": "Inquiries",
+          "cachedResultUrl": "https://airtable.com/applh3H1yzBbtCqV4/tblOvFOoC1syck2ZI"
+        },
+        "filterByFormula": "==AND(RECORD_ID() = \"{{ $('Prepare Follow-up Context').item.json.airtableRecordId }}\", {Status} != \"Handled\")",
+        "options": {}
+      },
+      "id": "541b653a-6d2a-40d3-a322-d6dd62a96c20",
+      "name": "Check Inquiry Status",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -528,
+        1568
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "rGRfQpRPxwjkxRkp",
+          "name": "Airtable Personal Access Token account 16"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "followup-check",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fb7a6a07-fce0-4386-940c-6eff78cd4e3c",
+      "name": "Needs Follow-up?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -304,
+        1568
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "abelbogale51@gmail.com",
+        "toEmail": "={{ $('Website Inquiry Webhook').item.json.email }}",
+        "subject": "Follow-up required: customer inquiry not handled",
+        "html": "=<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Customer Inquiry Follow-up</title>\n</head>\n\n<body style=\"margin:0; padding:0; background-color:#f5f5f5; font-family:Arial, Helvetica, sans-serif; color:#333333;\">\n\n  <div style=\"max-width:600px; margin:30px auto; background:#ffffff; padding:30px; border-radius:6px;\">\n\n    <h2 style=\"margin:0 0 20px 0; color:#222222;\">\n      Follow-up Required\n    </h2>\n\n    <p style=\"font-size:15px; line-height:1.6;\">\n      The following customer inquiry has not been marked as handled within two business days.\n    </p>\n\n    <p style=\"font-size:15px; line-height:1.6;\">\n      Please review the inquiry and follow up with the customer.\n    </p>\n\n    <hr style=\"border:0; border-top:1px solid #dddddd; margin:25px 0;\">\n\n    <p style=\"font-size:15px; line-height:1.8; margin:0;\">\n      <strong>Customer:</strong>\n      {{ $('Prepare Follow-up Context').item.json.fullName }}\n      <br>\n\n      <strong>Email:</strong>\n      {{ $('Prepare Follow-up Context').item.json.email }}\n      <br>\n\n      <strong>Phone:</strong>\n      {{ $('Prepare Follow-up Context').item.json.phone || 'Not provided' }}\n      <br>\n\n      <strong>Company:</strong>\n      {{ $('Prepare Follow-up Context').item.json.company || 'Not provided' }}\n      <br>\n\n      <strong>Priority:</strong>\n      {{ $('Prepare Follow-up Context').item.json.priority || 'Normal' }}\n    </p>\n\n    <div style=\"margin:25px 0; padding:15px; background:#f7f7f7; border-left:3px solid #666666;\">\n\n      <strong>Customer Message</strong>\n\n      <p style=\"margin:10px 0 0 0; font-size:15px; line-height:1.6;\">\n        {{ $('Prepare Follow-up Context').item.json.message }}\n      </p>\n\n    </div>\n\n    <p style=\"font-size:14px; line-height:1.6; color:#666666;\">\n      Please update the inquiry status in Airtable after it has been handled.\n    </p>\n\n    <p style=\"font-size:13px; color:#999999; margin-top:30px;\">\n      This is an automated reminder from the Customer Inquiry Automation workflow.\n    </p>\n\n  </div>\n\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "9dd8eed5-2d73-44b7-a5ef-6ed465f70a32",
+      "name": "Follow-up Reminder",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -80,
+        1472
+      ],
+      "webhookId": "da000a09-9ab8-4eeb-a8ca-77f73b536a6e",
+      "credentials": {
+        "smtp": {
+          "id": "5PvXmv9Wif2vMLkD",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "5340d197-fa0b-4fad-8d31-11b81238df2c",
+      "name": "Stop - No Follow-up Needed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        1648
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "fab6f3b2-24ba-45ed-ac05-f15b2c49718f",
+      "name": "Wait Until 2 Business Days",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -752,
+        1568
+      ],
+      "webhookId": "b4dfad19-69e0-47f3-b4d9-eb0ae06aaeca"
+    }
+  ],
+  "pinData": {
+    "Website Inquiry Webhook": [
+      {
+        "json": {
+          "fullName": "Jane Smith",
+          "email": "abelbogale72@gmail.com",
+          "phone": "+251851564680",
+          "company": "Duplicate Test Company",
+          "message": "This is a duplicate contact test.",
+          "source": "Website"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Website Inquiry Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate & Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Classify": {
+      "main": [
+        [
+          {
+            "node": "Valid Inquiry?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Inquiry?": {
+      "main": [
+        [
+          {
+            "node": "Find Duplicate Contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop and Error - Invalid Inquiry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Duplicate Contact": {
+      "main": [
+        [
+          {
+            "node": "Duplicate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicate?": {
+      "main": [
+        [
+          {
+            "node": "Update Existing Contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create New Inquiry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Existing Contact": {
+      "main": [
+        [
+          {
+            "node": "Prepare Follow-up Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create New Inquiry": {
+      "main": [
+        [
+          {
+            "node": "Prepare Follow-up Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Follow-up Context": {
+      "main": [
+        [
+          {
+            "node": "High Priority?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Priority?": {
+      "main": [
+        [
+          {
+            "node": "Internal Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Customer Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Internal Notification": {
+      "main": [
+        [
+          {
+            "node": "Customer Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customer Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Wait Until 2 Business Days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Inquiry Status": {
+      "main": [
+        [
+          {
+            "node": "Needs Follow-up?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Follow-up?": {
+      "main": [
+        [
+          {
+            "node": "Follow-up Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop - No Follow-up Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow-up Reminder": {
+      "main": [
+        [
+          {
+            "node": "Stop - No Follow-up Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Until 2 Business Days": {
+      "main": [
+        [
+          {
+            "node": "Check Inquiry Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "93098d65-3fda-4007-85ac-8439c2ec2f26",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "21ffbc9fe4d682285230f68e6ce0a88bc6c175acfc69677e5dd2dfde9641341b"
+  },
+  "nodeGroups": [],
+  "id": "Q0ihif5l5rRavZdx",
+  "tags": []
+}
